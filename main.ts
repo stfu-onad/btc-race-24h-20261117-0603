@@ -1,18 +1,18 @@
 // Dip-buyer for the BTC 24h race (agent-fun/bars-replay/v1, long only, one asset: CBBTC).
 //
-// Idea: on 1-minute bars BTC mostly chops inside a ~2% band while drifting slowly, and a
-// full round trip costs ~26 bps (4 bps fee + 2 bps slippage + ~7-13 bps of pool impact each
-// way), so fast signals (1-minute EMA crosses) bleed to death on fees. This bot trades
-// rarely and only on a real dip: it buys all its cash when the close falls at least 1.2%
-// below the highest high of the last 480 bars (8 hours), then sells the whole position at
-// +0.8% over its entry fill or at -1.5% under it, whichever comes first. On the published
-// dev window (1,440 bars) that is 5 trades, max drawdown ~1.5%, net PnL about +$14 on
-// $1,000 — positive on both halves of the window (+$4.3 / +$5.8) — while the kit's
-// ema-cross baseline loses -$106, rsi-bollinger -$24 and adx-momentum -$33 on the same
-// window, and buy-and-hold makes only +$1.07.
+// Idea: on 1-minute bars BTC mostly chops inside a ~2% band while drifting slowly, and
+// a full round trip costs ~26 bps (4 bps fee + 2 bps slippage + ~7-13 bps of pool impact
+// each way), so fast signals (1-minute EMA crosses) bleed to death on fees. This bot
+// trades rarely and only on a real dip: it buys all its cash when the close falls at
+// least 1.2% below the highest high of the last 480 bars (8 hours), then sells the
+// whole position at +0.8% over its entry fill or at -1.5% under it, whichever comes
+// first. On the published dev window (1,440 bars) that is 5 trades, max drawdown
+// ~1.5%, net PnL about +$14 on $1,000 — positive on both halves of the window
+// (+$4.3 / +$5.8) — while the kit's ema-cross baseline loses -$106, rsi-bollinger
+// -$24 and buy-and-hold makes only +$1.07 on the same window.
 //
-// Everything is integer math on the bar values (no floats, no clock, no randomness), so
-// two runs on the same data produce the same orders byte for byte.
+// Everything is integer math on the bar values (no floats, no clock, no randomness),
+// so two runs on the same data produce the same orders byte for byte.
 
 import { runBars, type BarsState, type BuyInput, type SellInput } from './vendor/makefun-bars.ts';
 
@@ -38,6 +38,11 @@ function rollingHigh(): bigint | null {
   return m;
 }
 
+/** Sell the whole position in one order, capped at MAX_SLIPPAGE_BPS of slippage. */
+function sellAll(qty: bigint): SellInput[] {
+  return [{ side: 'sell', symbol: SYMBOL, qty, max_slippage_bps: MAX_SLIPPAGE_BPS }];
+}
+
 await runBars({
   onBatch(state: BarsState, batch) {
     // Learn the entry fill price from the fills this batch reports, so the take-profit
@@ -61,18 +66,18 @@ await runBars({
       // was never seen (it always is, one batch after the buy fills).
       if (entryPrice !== null) {
         if (close * 10_000n >= entryPrice * (10_000n + BigInt(TAKE_PROFIT_BPS))) {
-          return [{ side: 'sell', symbol: SYMBOL, qty: held.qty, max_slippage_bps: MAX_SLIPPAGE_BPS } satisfies SellInput];
+          return sellAll(held.qty);
         }
         if (close * 10_000n <= entryPrice * (10_000n - BigInt(STOP_LOSS_BPS))) {
-          return [{ side: 'sell', symbol: SYMBOL, qty: held.qty, max_slippage_bps: MAX_SLIPPAGE_BPS } satisfies SellInput];
+          return sellAll(held.qty);
         }
       } else {
         const value = state.value(SYMBOL, held.qty);
         if (value * 10_000n >= held.cost * (10_000n + BigInt(TAKE_PROFIT_BPS))) {
-          return [{ side: 'sell', symbol: SYMBOL, qty: held.qty, max_slippage_bps: MAX_SLIPPAGE_BPS } satisfies SellInput];
+          return sellAll(held.qty);
         }
         if (value * 10_000n <= held.cost * (10_000n - BigInt(STOP_LOSS_BPS))) {
-          return [{ side: 'sell', symbol: SYMBOL, qty: held.qty, max_slippage_bps: MAX_SLIPPAGE_BPS } satisfies SellInput];
+          return sellAll(held.qty);
         }
       }
       return [];
